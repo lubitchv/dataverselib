@@ -545,3 +545,125 @@ func GetExportMetadataOfDataset(apiClient *ApiClient, persistentId string, expor
 
 	return bodyBytes, nil
 }
+
+func flatCompoundClass(c map[string]interface{}, column string, columnsMap *map[string]int, headers *[]string) string {
+	var flatValues string = ""
+	var currentFieldInCompound int = 0
+	for _, raw := range c {
+
+		if inner, ok := raw.(map[string]interface{}); ok {
+			if typeName, ok := inner["typeName"]; ok {
+				columnIndx, ok := (*columnsMap)[column]
+				if !ok {
+					columnIndx = len(*columnsMap)
+					(*columnsMap)[column] = columnIndx
+					*headers = append(*headers, column)
+				}
+
+				if currentFieldInCompound == 0 {
+					flatValues += fmt.Sprintf("{")
+				}
+				flatValues += fmt.Sprintf("'%s':'%s'", typeName, inner["value"].(string))
+
+				if currentFieldInCompound < len(c)-1 {
+					flatValues += fmt.Sprintf(",")
+				}
+
+				if currentFieldInCompound == len(c)-1 {
+					flatValues += fmt.Sprintf("}")
+				}
+				currentFieldInCompound++
+			}
+		}
+	}
+	return flatValues
+}
+
+// ConvertMetadataToCSVFormat converts and flattens search metadata into csv, one dataset - one line.
+//
+// Parameters:
+//   - datasets: []SearchItem - array that contains SearchItem elements with metadata blocks of each dataset
+//   - mbDict: map[string]string - dictionary that maps display name of metadata block to its name, which can be used to get the name of metadata block from its display name in the dataverse collection
+//
+// Returns:
+//   - Search result is an array that contains map of column name and value for each dataset, which can be used to create a csv file with columns of metadata fields and rows of datasets
+//   - array of column names for the csv file, which can be used as header of the csv file
+func ConvertMetadataToCSVFormat(datasets []SearchItem, mbDict map[string]string) ([]map[string]string, []string) {
+	var columnsMap map[string]int = make(map[string]int) //columns of csv file
+	var records []map[string]string = make([]map[string]string, 0)
+	var headers []string = make([]string, 0)
+
+	headers = append(headers, "persistentId") // first column is always persistentId
+
+	for _, ds := range datasets {
+
+		var record map[string]string = make(map[string]string)
+
+		//fmt.Println(ds.GlobalId)
+
+		record["persistentId"] = ds.GlobalId
+
+		metadata := ds.MetadataBlocks
+		for _, mb := range metadata { // for each metadata block
+			fields := mb.Fields
+			for _, field := range fields {
+				//fmt.Printf("Field TypeName: %s, Value: %+v, Multiple: %t, TypeClass: %s\n", field.TypeName, field.Value, field.Multiple, field.TypeClass)
+				if mbDict != nil {
+					mb.Name = mbDict[mb.DisplayName]
+				}
+				column := mb.Name + ":" + field.TypeName
+				if field.TypeClass == "primitive" || field.TypeClass == "controlledVocabulary" {
+					columnIndx, ok := columnsMap[column]
+					flatValues := ""
+					if field.Multiple {
+						for indx, v := range field.Value.([]interface{}) {
+							if indx > 0 {
+								flatValues += "|"
+							}
+							flatValues += fmt.Sprintf("%s", v)
+						}
+					} else {
+						flatValues = fmt.Sprintf("%s", field.Value)
+					}
+
+					if ok {
+						record[column] = flatValues
+					} else {
+						columnIndx = len(columnsMap)
+						columnsMap[column] = columnIndx
+						headers = append(headers, column)
+						record[column] = flatValues
+					}
+
+				} else if field.TypeClass == "compound" {
+					flatValues := ""
+					if field.Multiple {
+						entry, ok := field.Value.([]interface{}) // it is an array of values
+						if ok {
+							for indx, v := range entry { // for each value in the array
+								c, _ := v.(map[string]interface{}) // value is string: class
+								if indx > 0 {
+									flatValues += "|"
+								}
+								flatValues += flatCompoundClass(c, column, &columnsMap, &headers)
+							}
+						} else {
+							log.Printf("  Unexpected type for single compound field: %T\n", field.Value)
+						}
+
+					} else {
+						c, ok := field.Value.(map[string]interface{}) // it is a single compound class
+						if ok {
+							flatValues += flatCompoundClass(c, column, &columnsMap, &headers)
+						}
+					}
+					record[column] = flatValues
+				}
+			}
+
+		}
+		records = append(records, record)
+
+	}
+	return records, headers
+}
