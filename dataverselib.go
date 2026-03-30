@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -185,6 +186,7 @@ func GetTotalCount(apiClient *ApiClient, parameters map[string]interface{}) (int
 }
 
 func getAllMetadataStartEndSearch(apiClient *ApiClient, parameters map[string]interface{}, jobs <-chan int, results chan<- []SearchItem) {
+	log.Println("Starting getAllMetadataStartEndSearch")
 	for start := range jobs {
 
 		r := RequestResponse{}
@@ -199,12 +201,14 @@ func getAllMetadataStartEndSearch(apiClient *ApiClient, parameters map[string]in
 				"X-Dataverse-key": apiClient.ApiToken,
 			}
 		}
+
 		resp, err := GetRequest(parameters, u, headers, apiClient.HttpClient)
 		defer resp.Body.Close()
 		if err != nil {
 			log.Printf("Error getting request for start:%d, %s\n", start, err)
 			return
 		}
+		log.Println("good")
 
 		if resp.StatusCode != http.StatusOK {
 			log.Printf("Error in request status for start:%d, %d\n", start, resp.StatusCode)
@@ -216,6 +220,7 @@ func getAllMetadataStartEndSearch(apiClient *ApiClient, parameters map[string]in
 			log.Printf("Error decoding request for start:%d, %s\n", start, err)
 			return
 		}
+		log.Println(r.Status)
 		if r.Status == "OK" {
 			json.Unmarshal(r.Data, &s)
 		} else {
@@ -341,11 +346,21 @@ func GetSpecificMetadataOfDatasetsInDataverseSearchParallel(apiClient *ApiClient
 	if err != nil {
 		return nil, err
 	}
-
+	if totalCount <= numInBatch {
+		numInBatch = totalCount
+	}
 	numbOfRoutines := totalCount / numInBatch
 	if numInBatch*numbOfRoutines < totalCount {
 		numbOfRoutines = numbOfRoutines + 1
 	}
+
+	log.Println("number of routines", numbOfRoutines)
+	log.Println("number of workers", numOfWorkers)
+
+	n := math.Min(float64(numOfWorkers),float64 (numbOfRoutines))
+	numOfWorkers = int(n)
+
+	log.Println("New number of workers", numOfWorkers)
 
 	numOfJobs := numbOfRoutines
 	jobs := make(chan int, numOfJobs)
@@ -355,7 +370,9 @@ func GetSpecificMetadataOfDatasetsInDataverseSearchParallel(apiClient *ApiClient
 	for batch := 0; batch < numOfWorkers; batch++ {
 
 		start := batch * numInBatch
+		log.Println("Start:", start)
 		if start > totalCount-numInBatch {
+			log.Println("finish break")
 			break
 		}
 
