@@ -59,6 +59,49 @@ type License struct {
 	LanguageCode           string `json:"languageCode,omitempty"`
 }
 
+type Checksum struct {
+	Type  string `json:"type,omitempty"`
+	Value string `json:"value,omitempty"`
+}
+
+type AddFileMetadata struct {
+	Description    string   `json:"description,omitempty"`
+	Label          string   `json:"label,omitempty"`
+	DirectoryLabel string   `json:"directoryLabel,omitempty"`
+	Categories     []string `json:"categories,omitempty"`
+	Restrict       string   `json:"restrict,omitempty"`
+	TabIngest      string   `json:"tabIngest,omitempty"`
+}
+
+type DataFile struct {
+	Id                int       `json:"id,omitempty"`
+	PersistentId      string    `json:"persistentId,omitempty"`
+	Filename          string    `json:"filename,omitempty"`
+	ContentType       string    `json:"contentType,omitempty"`
+	FriendlyType      string    `json:"friendlyType,omitempty"`
+	Filesize          int64     `json:"filesize,omitempty"`
+	Description       string    `json:"description,omitempty"`
+	StorageIdentifier string    `json:"storageIdentifier,omitempty"`
+	RootDataFileId    int       `json:"rootDataFileId,omitempty"`
+	Md5               string    `json:"md5,omitempty"`
+	Checksum          Checksum  `json:"checksum,omitempty"`
+	TabularData       bool      `json:"tabularData,omitempty"`
+	CreationDate      string    `json:"creationDate,omitempty"`
+	PublicationDate   string    `json:"publicationDate,omitempty"`
+	DirectoryLabel    string    `json:"directoryLabel,omitempty"`
+	LastUpdateTime    time.Time `json:"lastUpdateTime,omitempty"`
+	fileAceessRequest bool      `json:"fileAccessRequest,omitempty"`
+}
+type File struct {
+	Description      string   `json:"description,omitempty"`
+	Label            string   `json:"label,omitempty"`
+	Restricted       bool     `json:"restricted,omitempty"`
+	DirectoryLabel   string   `json:"directoryLabel,omitempty"`
+	Version          int      `json:"version,omitempty"`
+	DatasetVersionId int      `json:"datasetVersionId,omitempty"`
+	DataFile         DataFile `json:"dataFile,omitempty"`
+}
+
 type DatasetVersion struct {
 	ID                           int       `json:"id,omitempty"`
 	DatasetId                    int       `json:"datasetId,omitempty"`
@@ -81,6 +124,7 @@ type DatasetVersion struct {
 	FileAccessRequest            bool      `json:"fileAccessRequest,omitempty"`
 
 	MetadataBlocks map[string]MetadataBlock `json:"metadataBlocks,omitempty"`
+	Files          []File                   `json:"files,omitempty"`
 }
 type CreateDatasetItem struct {
 	DatasetVersionField DatasetVersion `json:"datasetVersion"`

@@ -357,7 +357,7 @@ func GetSpecificMetadataOfDatasetsInDataverseSearchParallel(apiClient *ApiClient
 	log.Println("number of routines", numbOfRoutines)
 	log.Println("number of workers", numOfWorkers)
 
-	n := math.Min(float64(numOfWorkers),float64 (numbOfRoutines))
+	n := math.Min(float64(numOfWorkers), float64(numbOfRoutines))
 	numOfWorkers = int(n)
 
 	log.Println("New number of workers", numOfWorkers)
@@ -1048,7 +1048,54 @@ func GetListOfMandatoryFieldsOfDataverse(apiClient *ApiClient, dataverseAlias st
 	return requiredFields, nil
 }
 
-func GetJsonFromISO() error {
+func GetVersionsOfDataset(apiClient *ApiClient, parameters map[string]interface{}) ([]DatasetVersion, error) {
+	versions := make([]DatasetVersion, 0)
+	url := apiClient.BaseUrl + "/api/datasets/:persistentId/versions"
+	headers := map[string]interface{}{
+		"X-Dataverse-key": apiClient.ApiToken,
+	}
+	r := RequestResponse{}
+	resp, err := GetRequest(parameters, url, headers, apiClient.HttpClient)
+	if err != nil {
+		return versions, err
+	}
+	defer resp.Body.Close()
+	if err != nil {
+		return versions, err
+	}
+	log.Println(resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		return versions, fmt.Errorf("Error to get versions of dataset: %s", resp.Status)
+	}
 
+	err = json.NewDecoder(resp.Body).Decode(&r)
+	if err != nil {
+		return versions, err
+	}
+	if r.Status == "OK" {
+		json.Unmarshal(r.Data, &versions)
+	} else {
+		return versions, fmt.Errorf("Error from server getting versions of dataset: %s ", r.Message)
+	}
+	return versions, nil
+}
+func AddFileToDataset(apiClient *ApiClient, parameters map[string]interface{}, filePath string, jsonData AddFileMetadata) error {
+	headers := map[string]interface{}{
+		"X-Dataverse-key": apiClient.ApiToken,
+	}
+	url := apiClient.BaseUrl + "/api/datasets/:persistentId/add"
+	jsonBytes, err := json.Marshal(jsonData)
+	if err != nil {
+		return err
+	}
+
+	resp, err := PostRequestMultiPartJsonAndFile(parameters, url, headers, apiClient.HttpClient, filePath, string(jsonBytes), "POST")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	fmt.Println("Status:", resp.Status)
+	fmt.Println("Response:", string(respBody))
 	return nil
 }
