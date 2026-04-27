@@ -50,8 +50,8 @@ type MetadataBlockInfo struct {
 }
 
 type License struct {
-	Name                   string `json:"name"`
-	Uri                    string `json:"uri"`
+	Name                   string `json:"name,omitempty"`
+	Uri                    string `json:"uri,omitempty"`
 	IconUri                string `json:"iconUri,omitempty"`
 	RightsIdentifier       string `json:"rightsIdentifier,omitempty"`
 	RightsIdentifierScheme string `json:"rightsIdentifierScheme,omitempty"`
@@ -102,6 +102,10 @@ type File struct {
 	DataFile         DataFile `json:"dataFile,omitempty"`
 }
 
+type Files struct {
+	Files []File `json:"files,omitempty"`
+}
+
 type UpdateFileMetadataStruct struct {
 	Description    string   `json:"description,omitempty"`
 	Label          string   `json:"label,omitempty"`
@@ -110,6 +114,7 @@ type UpdateFileMetadataStruct struct {
 	Restrict       string   `json:"restrict,omitempty"`
 	ProvFreeform   string   `json:"provFreeform,omitempty"`
 	DataFileTags   []string `json:"dataFileTags,omitempty"`
+	ContentType    string   `json:"contentType,omitempty"`
 }
 
 type DatasetVersion struct {
@@ -132,14 +137,40 @@ type DatasetVersion struct {
 	CitationDate                 string    `json:"citationDate,omitempty"`
 	License                      License   `json:"license,omitempty"`
 	TermsOfUse                   string    `json:"termsOfUse,omitempty"`
+	ConfidentialityDeclaration   string    `json:"confidentialityDeclaration,omitempty"`
+	SpecialPermissions           string    `json:"specialPermissions,omitempty"`
 	Restrictions                 string    `json:"restrictions,omitempty"`
 	CitationRequirements         string    `json:"citationRequirements,omitempty"`
+	DepositorRequirements        string    `json:"depositorRequirements,omitempty"`
+	Conditions                   string    `json:"conditions,omitempty"`
 	Disclaimer                   string    `json:"disclaimer,omitempty"`
+	TermsOfAccess                string    `json:"termsOfAccess,omitempty"`
+	DataAccessPlace              string    `json:"dataAccessPlace,omitempty"`
 	OriginalArchive              string    `json:"originalArchive,omitempty"`
-	FileAccessRequest            bool      `json:"fileAccessRequest,omitempty"`
+	AvailabilityStatus           string    `json:"availabilityStatus,omitempty"`
+	ContactForAccess             string    `json:"contactForAccess,omitempty"`
+	SizeOfCollection             string    `json:"sizeOfCollection,omitempty"`
+	StudyCompletion              string    `json:"studyCompletion,omitempty"`
+
+	FileAccessRequest bool `json:"fileAccessRequest,omitempty"`
 
 	MetadataBlocks map[string]MetadataBlock `json:"metadataBlocks,omitempty"`
 	Files          []File                   `json:"files,omitempty"`
+}
+
+type CustomTermsOfAccess struct {
+	FileAccessRequest  bool   `json:"fileAccessRequest"`
+	TermsOfAccess      string `json:"termsOfAccess"`
+	DataAccessPlace    string `json:"dataAccessPlace"`
+	OriginalArchive    string `json:"originalArchive"`
+	AvailabilityStatus string `json:"availabilityStatus"`
+	ContactForAccess   string `json:"contactForAccess"`
+	SizeOfCollection   string `json:"sizeOfCollection"`
+	StudyCompletion    string `json:"studyCompletion"`
+}
+
+type CreateCustomTermsOfAccess struct {
+	CustomTermsOfAccess CustomTermsOfAccess `json:"customTermsOfAccess"`
 }
 
 type CustomTerms struct {
@@ -185,6 +216,14 @@ type RequestResponse struct {
 	Message string          `json:"message,omitempty"`
 }
 
+type LockResult struct {
+	LockType string `json:"lockType"`
+	Date     string `json:"date"`
+	User     string `json:"user"`
+	Dataset  string `json:"dataset"`
+}
+type LockResults []LockResult
+
 type SearchResult struct {
 	Q          string       `json:"q"`
 	TotalCount int          `json:"total_count"`
@@ -217,11 +256,16 @@ type ApiClient struct {
 }
 
 type Config struct {
-	UrlBase        string `json:"url_base"`
+	UrlBase        string `json:"url_base,omitempty"`
 	ApiToken       string `json:"api_token,omitempty"`
-	DataverseAlias string `json:"dataverse_alias"`
+	DataverseAlias string `json:"dataverse_alias,omitempty"`
 	NumOfWorkers   int    `json:"num_of_workers,omitempty"`
 	NumInSearch    int    `json:"num_in_search,omitempty"`
+
+	UrlBaseOrigin  string `json:"url_base_origin,omitempty"`
+	ApiTokenOrigin string `json:"api_token_origin,omitempty"`
+	UrlBaseTarget  string `json:"url_base_target,omitempty"`
+	ApiTokenTarget string `json:"api_token_target,omitempty"`
 }
 
 func primitiveOneField(typeName string, value string) MetadataField {

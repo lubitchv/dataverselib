@@ -1,6 +1,8 @@
 package dataverselib
 
 import (
+	"archive/zip"
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // GetVersionOfDataset get a specific version of a dataverse dataset.
@@ -1194,12 +1197,137 @@ func UpdateFileMetadata(apiClient *ApiClient, parameters map[string]interface{},
 	fmt.Println("Response:", string(respBody))
 	return nil
 }
+func GetFileFromDataset(apiClient *ApiClient, parameters map[string]interface{}, fileId int) ([]byte, error) {
+	// /api/access/datafile/$id
+	headers := map[string]interface{}{
+		"X-Dataverse-key": apiClient.ApiToken,
+	}
+	url := apiClient.BaseUrl + "/api/access/datafile/" + strconv.Itoa(fileId)
+	resp, err := GetRequest(parameters, url, headers, apiClient.HttpClient)
+	defer resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
 
-func AddFilesToDataset(apiClient *ApiClient, pid string, files []File) error {
+	log.Println(resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Error to get file: %s", resp.Status)
+	}
+	body, err := io.ReadAll(resp.Body)
+
+	return body, nil
+}
+
+func zipBytes(filename string, data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+
+	zw := zip.NewWriter(&buf)
+
+	w, err := zw.Create(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = w.Write(data)
+	if err != nil {
+		return nil, err
+	}
+
+	err = zw.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+func AddFileToDatasetFromMemory(apiClient *ApiClient, parameters map[string]interface{}, fileBytes []byte, jsonData AddFileMetadata) (int, error) {
+	headers := map[string]interface{}{
+		"X-Dataverse-key": apiClient.ApiToken,
+	}
+	url := apiClient.BaseUrl + "/api/datasets/:persistentId/add"
+
+	contentType := http.DetectContentType(fileBytes)
+	log.Println(contentType)
+
+	jsonBytes, err := json.Marshal(jsonData)
+	if err != nil {
+		return 0, err
+	}
+	var z []byte = nil
+	if contentType == "application/zip" {
+		log.Println("This is zip file")
+		z, err = zipBytes("filename", fileBytes)
+		if err != nil {
+			return 0, err
+		}
+
+	} else {
+		z = fileBytes
+	}
+	log.Println("ADDING FILE")
+	resp, err := PostRequestMultiPartJsonAndFileFromMemory(parameters, url, headers, apiClient.HttpClient, z, string(jsonBytes), "POST", contentType)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	r := RequestResponse{}
+	f := Files{}
+
+	err = json.NewDecoder(resp.Body).Decode(&r)
+	if err != nil {
+		return 0, err
+	}
+	if r.Status == "OK" {
+		json.Unmarshal(r.Data, &f)
+	} else {
+		return 0, fmt.Errorf("Error for AddFileToDatasetFromMemory: %s ", r.Message)
+	}
+
+	return f.Files[0].DataFile.Id, nil
+}
+func deleteFileFromDataset(apiClient *ApiClient, fileId int) error {
+
+}
+
+func DeleteFilesFromDataset(apiClient *ApiClient, pid string, files []File) error {
 	for _, file := range files {
-		log.Println(file)
+
 	}
 	return nil
+}
+
+func AddFilesToDataset(apiClientOrigin *ApiClient, apiClientTarget *ApiClient, pid string, files []File) (map[int]int, error) {
+	parametersOrigin := map[string]interface{}{
+		"format": "original",
+	}
+	parametersTarget := map[string]interface{}{
+		"persistentId": pid,
+	}
+	oldNewFilesIds := make(map[int]int)
+	log.Println("Length of files to add: ", len(files))
+	for _, file := range files {
+		log.Println("Hi")
+		log.Println(file)
+		var jsonData AddFileMetadata
+		jsonData.Description = file.Description
+		jsonData.Label = file.Label
+		jsonData.DirectoryLabel = file.DirectoryLabel
+		jsonData.Restrict = strconv.FormatBool(file.Restricted)
+
+		f, err := GetFileFromDataset(apiClientOrigin, parametersOrigin, file.DataFile.Id)
+		if err != nil {
+			return oldNewFilesIds, err
+		}
+		var newFileId int
+		newFileId, err = AddFileToDatasetFromMemory(apiClientTarget, parametersTarget, f, jsonData)
+		if err != nil {
+			return oldNewFilesIds, err
+		}
+		oldNewFilesIds[file.DataFile.Id] = newFileId
+
+	}
+	return oldNewFilesIds, nil
 }
 
 func UpdateCustomTermsOfUse(apiClient *ApiClient, id int, customTerms CustomTerms) error {
@@ -1231,7 +1359,188 @@ func UpdateCustomTermsOfUse(apiClient *ApiClient, id int, customTerms CustomTerm
 	return nil
 }
 
-func CreateAllVersionsOfDataset(apiClient *ApiClient, dataverseAlias string, datasetVersions []DatasetVersion) (MinimalDataset, error) {
+func PublishDataset(apiClient *ApiClient, parameters map[string]interface{}) error {
+	//curl -H "X-Dataverse-key: $API_TOKEN" -X POST "$SERVER_URL/api/datasets/:persistentId/actions/:publish?persistentId=$PERSISTENT_ID&type=$MAJOR_OR_MINOR"
+	//Superusers can pass type=updatecurrent to update metadata without changing the version number
+	//assureIsIndexed. If true, the call will fail with a 409 (“CONFLICT”) response if the dataset is awaiting re-indexing
+	url := apiClient.BaseUrl + "/api/datasets/:persistentId/actions/:publish"
+	headers := map[string]interface{}{
+		"X-Dataverse-key": apiClient.ApiToken,
+	}
+	resp, err := PostRequest(parameters, url, headers, apiClient.HttpClient, nil)
+	defer resp.Body.Close()
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		log.Println("Status:", resp.Status)
+		log.Println("Response:", string(respBody))
+		return fmt.Errorf("Error to publish dataset: %s", resp.Status)
+	}
+	return nil
+}
+
+func UpdateCustomTermsOfAccess(apiClient *ApiClient, id int, customTermsOfAccess CustomTermsOfAccess) error {
+	idStr := strconv.Itoa(id)
+	url := apiClient.BaseUrl + "/api/datasets/" + idStr + "/access"
+
+	headers := map[string]interface{}{
+		"X-Dataverse-key": apiClient.ApiToken,
+		"Content-Type":    "application/json",
+	}
+	parameters := map[string]interface{}{}
+	ct := CreateCustomTermsOfAccess{
+		CustomTermsOfAccess: customTermsOfAccess,
+	}
+
+	jsonData, err := json.Marshal(ct)
+	log.Println(string(jsonData))
+	if err != nil {
+		return err
+	}
+	resp, err := PutRequest(parameters, url, headers, apiClient.HttpClient, jsonData)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	log.Println("Status:", resp.Status)
+	log.Println("Response:", string(respBody))
+	return nil
+}
+
+func isLocked(apiClient *ApiClient, pid string) (bool, error) {
+	locks, err := getLocks(apiClient, pid)
+	if err != nil {
+		return true, err
+	}
+	if len(locks) > 0 {
+		return true, nil
+	}
+	return false, nil
+}
+
+func getLocks(apiClient *ApiClient, pid string) (LockResults, error) {
+	//curl "$SERVER_URL/api/datasets/$ID/locks"
+	lockResults := make([]LockResult, 0)
+	url := apiClient.BaseUrl + "/api/datasets/:persistentId/locks"
+	parameters := map[string]interface{}{
+		"persistentId": pid,
+	}
+	headers := map[string]interface{}{
+		"X-Dataverse-key": apiClient.ApiToken,
+	}
+	resp, err := GetRequest(parameters, url, headers, apiClient.HttpClient)
+	if err != nil {
+		return lockResults, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return lockResults, fmt.Errorf("Error to check lock: %s", resp.Status)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	r := RequestResponse{}
+	err = json.Unmarshal(respBody, &r)
+	if err != nil {
+		return lockResults, err
+	}
+
+	if r.Status == "OK" {
+		json.Unmarshal(r.Data, &lockResults)
+	} else {
+		return lockResults, fmt.Errorf("Error getting locks: %s %s", parameters["persistentId"], r.Message)
+	}
+
+	log.Println("Status:", resp.Status)
+	log.Println("Response:", string(respBody))
+	return lockResults, nil
+}
+func (u DatasetVersion) MarshalJSON() ([]byte, error) {
+	type Alias DatasetVersion
+
+	aux := struct {
+		Alias
+		License *License `json:"license,omitempty"`
+	}{
+		Alias: (Alias)(u),
+	}
+
+	if u.License.Name != "" {
+
+		aux.License = &u.License
+	}
+
+	return json.Marshal(aux)
+}
+
+func UpdateDatasetMetadata(apiClient *ApiClient, pid string, datasetVersion DatasetVersion) error {
+	//curl -H "X-Dataverse-key: $API_TOKEN" -X PUT "$SERVER_URL/api/datasets/:persistentId/versions/:draft?persistentId=$PERSISTENT_IDENTIFIER" --upload-file dataset-update-metadata.json
+	url := apiClient.BaseUrl + "/api/datasets/:persistentId/versions/:draft"
+	headers := map[string]interface{}{
+		"X-Dataverse-key": apiClient.ApiToken,
+	}
+	parameters := map[string]interface{}{
+		"persistentId": pid,
+	}
+	//if datasetVersion.License.Name == "" {
+	//	datasetVersion.License.Name = "CC0 1.0"
+	//	datasetVersion.License.Uri = "http://creativecommons.org/publicdomain/zero/1.0"
+	//}
+	jsonData, err := json.Marshal(datasetVersion)
+
+	if err != nil {
+		return err
+	}
+	locked, err := isLocked(apiClient, pid)
+	if err != nil {
+		return err
+	}
+	if locked {
+		time.Sleep(30 * time.Second)
+	}
+	resp, err := PutRequest(parameters, url, headers, apiClient.HttpClient, jsonData)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	log.Println("Status:", resp.Status)
+	log.Println("Response:", string(respBody))
+	return nil
+}
+
+func deletedAndAddedFilesList(filesPrevVer []File, filesCurVer []File) ([]File, []File, error) {
+	delFileList := make([]File, 0)
+	addFileList := make([]File, 0)
+	filesPrevVerMap := make(map[int]File)
+	for _, filePrevVer := range filesPrevVer {
+		filesPrevVerMap[filePrevVer.DataFile.Id] = filePrevVer
+	}
+	filesCurVerMap := make(map[int]File)
+	for _, fileCurVer := range filesCurVer {
+		filesCurVerMap[fileCurVer.DataFile.Id] = fileCurVer
+	}
+
+	for _, fileCurVer := range filesCurVerMap {
+		found := false
+		_, found = filesPrevVerMap[fileCurVer.DataFile.Id]
+		if !found {
+			addFileList = append(addFileList, fileCurVer)
+		}
+	}
+
+	for _, filePrevVer := range filesPrevVerMap {
+		found := false
+		_, found = filesCurVerMap[filePrevVer.DataFile.Id]
+		if !found {
+			delFileList = append(delFileList, filePrevVer)
+		}
+	}
+	return delFileList, addFileList, nil
+}
+
+func CreateAllVersionsOfDataset(apiClientOrigin *ApiClient, apiClientTarget *ApiClient, dataverseAlias string, datasetVersions []DatasetVersion) (MinimalDataset, error) {
 	dataset := MinimalDataset{}
 	slices.SortStableFunc(datasetVersions, func(dv1, dv2 DatasetVersion) int {
 
@@ -1249,21 +1558,97 @@ func CreateAllVersionsOfDataset(apiClient *ApiClient, dataverseAlias string, dat
 		}
 	})
 
+	var oldNewFileIds map[int]int
 	if len(datasetVersions) > 0 {
+		//create the first version, then add files, then create the rest of versions based on the first version
 		files := datasetVersions[0].Files
 		log.Println(files)
-		datasetVersions[0].Files = nil
-		dataset, err := CreateDataset(apiClient, dataverseAlias, datasetVersions[0])
+		dv := datasetVersions[0]
+		dv.Files = nil
+
+		var err error
+		dataset, err = CreateDataset(apiClientTarget, dataverseAlias, dv)
 		log.Println(dataset)
 		if err != nil {
 			return dataset, fmt.Errorf("Error creating dataset version ", err)
 		}
 		log.Printf("Created dataset version with pid: %s\n", dataset.Pid)
-		return dataset, nil
-		//AddFilesToDataset(apiClient, pid, datasetVersions[0].Files)
+		//return dataset, nil
+
+		oldNewFileIds, err = AddFilesToDataset(apiClientOrigin, apiClientTarget, dataset.Pid, files)
+		if err != nil {
+			return dataset, err
+		}
+		customTerms := CustomTerms{}
+		customTerms.TermsOfUse = dv.TermsOfUse
+		customTerms.CitationRequirements = dv.CitationRequirements
+		customTerms.Disclaimer = dv.Disclaimer
+		customTerms.Conditions = dv.Conditions
+		customTerms.ConfidentialityDeclaration = dv.ConfidentialityDeclaration
+		customTerms.DepositorRequirements = dv.DepositorRequirements
+		customTerms.SpecialPermissions = dv.SpecialPermissions
+		customTerms.Restrictions = dv.Restrictions
+
+		err = UpdateCustomTermsOfUse(apiClientTarget, dataset.Id, customTerms)
+		if err != nil {
+			return dataset, err
+		}
+		customTermsOfAccess := CustomTermsOfAccess{}
+		customTermsOfAccess.OriginalArchive = dv.OriginalArchive
+		customTermsOfAccess.FileAccessRequest = dv.FileAccessRequest
+		customTermsOfAccess.TermsOfAccess = dv.TermsOfAccess
+		customTermsOfAccess.ContactForAccess = dv.ContactForAccess
+		customTermsOfAccess.DataAccessPlace = dv.DataAccessPlace
+		customTermsOfAccess.AvailabilityStatus = dv.AvailabilityStatus
+		customTermsOfAccess.SizeOfCollection = dv.SizeOfCollection
+		customTermsOfAccess.StudyCompletion = dv.StudyCompletion
+
+		err = UpdateCustomTermsOfAccess(apiClientTarget, dataset.Id, customTermsOfAccess)
+		if err != nil {
+			return dataset, err
+		}
+		if dv.VersionState == "RELEASED" {
+			parametersPublish := map[string]interface{}{
+				"persistentId": dataset.Pid,
+				"type":         "major",
+			}
+			err = PublishDataset(apiClientTarget, parametersPublish)
+			if err != nil {
+				return dataset, err
+			}
+		}
+
+		for i := 1; i < len(datasetVersions); i++ {
+			//Update dataset metadata
+			dv = datasetVersions[i]
+			dv.Files = nil
+			log.Println(dataset.Pid)
+			err = UpdateDatasetMetadata(apiClientTarget, dataset.Pid, dv)
+			if err != nil {
+				return dataset, err
+			}
+			var delFilesList []File
+			var addFilesList []File
+			delFilesList, addFilesList, err = deletedAndAddedFilesList(datasetVersions[i-1].Files, datasetVersions[i].Files)
+			if err != nil {
+				return dataset, err
+			}
+			for j := range delFilesList {
+				if newId, ok := oldNewFileIds[delFilesList[j].DataFile.Id]; ok {
+					delFilesList[j].DataFile.Id = newId
+				} else {
+					return dataset, fmt.Errorf("Error getting new file id for file id %d", delFilesList[j].DataFile.Id)
+				}
+			}
+			DeleteFilesFromDataset(apiClientTarget, dataset.Pid, delFilesList)
+			AddFilesToDataset(apiClientOrigin, apiClientTarget, dataset.Pid, addFilesList)
+
+		}
+
 	} else {
 		return dataset, fmt.Errorf("No dataset versions to create")
 	}
+	return dataset, nil
 
 }
 
