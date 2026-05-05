@@ -1286,16 +1286,18 @@ func AddFileToDatasetFromMemory(apiClient *ApiClient, parameters map[string]inte
 
 	return f.Files[0].DataFile.Id, nil
 }
-func deleteFileFromDataset(apiClient *ApiClient, fileId int) error {
+//func deleteFileFromDataset(apiClient *ApiClient, fileId int) error {
+//
+//}func deleteFileFromDataset(apiClient *ApiClient, fileId int) error {
+//
+//}
 
-}
-
-func DeleteFilesFromDataset(apiClient *ApiClient, pid string, files []File) error {
-	for _, file := range files {
-
-	}
-	return nil
-}
+//func DeleteFilesFromDataset(apiClient *ApiClient, pid string, files []File) error {
+//	for _, file := range files {
+//
+//	}
+//	return nil
+//}
 
 func AddFilesToDataset(apiClientOrigin *ApiClient, apiClientTarget *ApiClient, pid string, files []File) (map[int]int, error) {
 	parametersOrigin := map[string]interface{}{
@@ -1640,7 +1642,7 @@ func CreateAllVersionsOfDataset(apiClientOrigin *ApiClient, apiClientTarget *Api
 					return dataset, fmt.Errorf("Error getting new file id for file id %d", delFilesList[j].DataFile.Id)
 				}
 			}
-			DeleteFilesFromDataset(apiClientTarget, dataset.Pid, delFilesList)
+			//DeleteFilesFromDataset(apiClientTarget, dataset.Pid, delFilesList)
 			AddFilesToDataset(apiClientOrigin, apiClientTarget, dataset.Pid, addFilesList)
 
 		}
